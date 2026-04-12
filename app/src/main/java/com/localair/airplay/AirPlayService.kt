@@ -21,10 +21,10 @@ class AirPlayService : Service() {
     private lateinit var mdns: MdnsAdvertiser
     private val audio = AudioDecoder()
     val video = VideoDecoder { hasFrames ->
-        // Broadcast to any listening Activity
         val intent = Intent(ACTION_FRAMES_CHANGED).putExtra("hasFrames", hasFrames)
         sendBroadcast(intent)
     }
+    lateinit var urlPlayer: UrlPlayer; private set
     private val handler = Handler(Looper.getMainLooper())
     private var port = 0
 
@@ -42,6 +42,10 @@ class AirPlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        urlPlayer = UrlPlayer(this)
+        urlPlayer.setSurfaceChangedListener { hasFrames ->
+            sendBroadcast(Intent(ACTION_FRAMES_CHANGED).putExtra("hasFrames", hasFrames))
+        }
         startInForeground()
         acquireMulticastLock()
         startReceiver()
@@ -54,20 +58,29 @@ class AirPlayService : Service() {
         if (::mdns.isInitialized) mdns.unregister()
         AirPlayNative.setVideoSink(null)
         AirPlayNative.setAudioSink(null)
+        AirPlayNative.playbackListener = null
         AirPlayNative.stop()
+        urlPlayer.release()
         video.release()
         audio.release()
         multicastLock?.release()
         super.onDestroy()
     }
 
-    fun attachSurface(s: Surface) { video.attachSurface(s) }
-    fun detachSurface() { video.detachSurface() }
+    fun attachSurface(s: Surface) {
+        video.attachSurface(s)
+        urlPlayer.attachSurface(s)
+    }
+    fun detachSurface() {
+        video.detachSurface()
+        urlPlayer.detachSurface()
+    }
 
     private fun startReceiver() {
         port = AirPlayNative.start()
         AirPlayNative.setVideoSink(video)
         AirPlayNative.setAudioSink(audio)
+        AirPlayNative.playbackListener = urlPlayer
         AirPlayNative.connectionListener = {
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)

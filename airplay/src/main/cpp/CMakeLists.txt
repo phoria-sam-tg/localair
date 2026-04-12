@@ -81,6 +81,7 @@ if(EXISTS ${RPIPLAY_LIB}/raop.c AND HAVE_LIBPLIST)
         ${RPIPLAY_LIB}
         ${RPIPLAY_LIB}/playfair
         ${RPIPLAY_LIB}/llhttp
+        ${CMAKE_CURRENT_SOURCE_DIR}
     )
     target_compile_definitions(rpiplay PRIVATE _GNU_SOURCE OPENSSL_API_COMPAT=0x10101000L)
     target_compile_options(rpiplay PRIVATE -Wno-deprecated-declarations -Wno-pointer-sign -Wno-implicit-function-declaration)
@@ -99,6 +100,7 @@ add_library(airplay_native SHARED
     jni_bridge.cpp
     video_sink.cpp
     audio_sink.cpp
+    airplay_video.c
 )
 target_include_directories(airplay_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

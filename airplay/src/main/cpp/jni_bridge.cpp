@@ -11,6 +11,7 @@ extern "C" {
 #include "raop.h"
 #include "stream.h"
 #include "dnssd.h"
+#include "airplay_video.h"
 }
 #endif
 
@@ -19,8 +20,12 @@ extern "C" {
 
 namespace {
 
-jclass    g_nativeClass = nullptr;
-jmethodID g_onConnInit  = nullptr;
+jclass    g_nativeClass  = nullptr;
+jmethodID g_onConnInit   = nullptr;
+jmethodID g_onPlayUrl    = nullptr;
+jmethodID g_onPlayStop   = nullptr;
+jmethodID g_onPlayRate   = nullptr;
+jmethodID g_onPlayInfo   = nullptr;
 
 #if HAVE_RPIPLAY
 raop_t*  g_raop  = nullptr;
@@ -47,6 +52,62 @@ void conn_init(void*) {
 void conn_destroy(void*) {
     LOGI("client disconnected");
     localair::dispatchSessionEnd();
+}
+
+void on_play_url(void*, const char* url, double start) {
+    LOGI("play URL: %s start=%.2f", url, start);
+    if (!g_nativeClass || !g_onPlayUrl) return;
+    JavaVM* vm = localair::jvm(); if (!vm) return;
+    JNIEnv* e = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&e), JNI_VERSION_1_6) != JNI_OK)
+        vm->AttachCurrentThread(&e, nullptr);
+    if (!e) return;
+    jstring jurl = e->NewStringUTF(url);
+    e->CallStaticVoidMethod(g_nativeClass, g_onPlayUrl, jurl, (jdouble)start);
+    if (e->ExceptionCheck()) { e->ExceptionDescribe(); e->ExceptionClear(); }
+    e->DeleteLocalRef(jurl);
+}
+
+void on_play_stop(void*) {
+    LOGI("play stop");
+    if (!g_nativeClass || !g_onPlayStop) return;
+    JavaVM* vm = localair::jvm(); if (!vm) return;
+    JNIEnv* e = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&e), JNI_VERSION_1_6) != JNI_OK)
+        vm->AttachCurrentThread(&e, nullptr);
+    if (!e) return;
+    e->CallStaticVoidMethod(g_nativeClass, g_onPlayStop);
+    if (e->ExceptionCheck()) { e->ExceptionDescribe(); e->ExceptionClear(); }
+}
+
+void on_play_rate(void*, float rate) {
+    LOGI("play rate: %.1f", rate);
+    if (!g_nativeClass || !g_onPlayRate) return;
+    JavaVM* vm = localair::jvm(); if (!vm) return;
+    JNIEnv* e = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&e), JNI_VERSION_1_6) != JNI_OK)
+        vm->AttachCurrentThread(&e, nullptr);
+    if (!e) return;
+    e->CallStaticVoidMethod(g_nativeClass, g_onPlayRate, (jfloat)rate);
+    if (e->ExceptionCheck()) { e->ExceptionDescribe(); e->ExceptionClear(); }
+}
+
+void on_play_info(void*, double* duration, double* position, float* rate) {
+    if (!g_nativeClass || !g_onPlayInfo) return;
+    JavaVM* vm = localair::jvm(); if (!vm) return;
+    JNIEnv* e = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&e), JNI_VERSION_1_6) != JNI_OK)
+        vm->AttachCurrentThread(&e, nullptr);
+    if (!e) return;
+    jdoubleArray arr = e->NewDoubleArray(3);
+    e->CallStaticVoidMethod(g_nativeClass, g_onPlayInfo, arr);
+    if (e->ExceptionCheck()) { e->ExceptionDescribe(); e->ExceptionClear(); }
+    else {
+        jdouble vals[3];
+        e->GetDoubleArrayRegion(arr, 0, 3, vals);
+        *duration = vals[0]; *position = vals[1]; *rate = (float)vals[2];
+    }
+    e->DeleteLocalRef(arr);
 }
 void audio_flush(void*)  {}
 void video_flush(void*)  {}
@@ -95,6 +156,7 @@ Java_com_localair_airplay_nativebridge_AirPlayNative_nativeStart(JNIEnv*, jclass
         return 0;
     }
     LOGI("raop listening on %d", port);
+    airplay_video_set_callbacks(nullptr, on_play_url, on_play_stop, on_play_rate, on_play_info);
     return static_cast<jint>(port);
 #else
     LOGI("stub start — RPiPlay not vendored");
@@ -136,7 +198,11 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     jclass cls = env->FindClass("com/localair/airplay/nativebridge/AirPlayNative");
     if (cls) {
         g_nativeClass = reinterpret_cast<jclass>(env->NewGlobalRef(cls));
-        g_onConnInit = env->GetStaticMethodID(cls, "onConnectionInit", "()V");
+        g_onConnInit  = env->GetStaticMethodID(cls, "onConnectionInit", "()V");
+        g_onPlayUrl   = env->GetStaticMethodID(cls, "onPlayUrl", "(Ljava/lang/String;D)V");
+        g_onPlayStop  = env->GetStaticMethodID(cls, "onPlayStop", "()V");
+        g_onPlayRate  = env->GetStaticMethodID(cls, "onPlayRate", "(F)V");
+        g_onPlayInfo  = env->GetStaticMethodID(cls, "onPlayInfo", "([D)V");
         env->DeleteLocalRef(cls);
     }
     return JNI_VERSION_1_6;
