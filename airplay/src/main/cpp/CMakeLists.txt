@@ -101,6 +101,7 @@ add_library(airplay_native SHARED
     video_sink.cpp
     audio_sink.cpp
     airplay_video.c
+    channel_crypto.c
 )
 target_include_directories(airplay_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
