@@ -10,6 +10,8 @@ import android.view.Surface
 import com.localair.airplay.nativebridge.VideoSink
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Async MediaCodec AVC decoder that lives in the Service, independent of
@@ -40,12 +42,21 @@ class VideoDecoder(
         codecHandler.post { maybeStartCodec() }
     }
 
+    /**
+     * Stops the codec before returning: SurfaceHolder.surfaceDestroyed requires
+     * that nothing uses the surface once it returns, and a codec still rendering
+     * into it is how "The surface has been released" happened under the
+     * screensaver's attach/detach churn. Bounded, so a wedged codec can't hang
+     * the UI thread.
+     */
     fun detachSurface() {
         surface = null
         Log.i(TAG, "surface detached — stopping codec")
-        val c = codec
-        codec = null
-        codecHandler.post { c?.runCatching { stop(); release() } }
+        val done = CountDownLatch(1)
+        if (!codecHandler.post { stopCodec(); done.countDown() }) done.countDown()
+        if (!done.await(DETACH_WAIT_MS, TimeUnit.MILLISECONDS)) {
+            Log.w(TAG, "codec stop still pending after ${DETACH_WAIT_MS}ms")
+        }
         pending.clear()
         rendered = 0; fed = 0
         if (hasFrames) { hasFrames = false; onFramesChanged(false) }
@@ -59,9 +70,7 @@ class VideoDecoder(
 
     override fun onSessionEnd() {
         Log.i(TAG, "session ended — resetting")
-        val c = codec
-        codec = null
-        codecHandler.post { c?.runCatching { stop(); release() } }
+        codecHandler.post { stopCodec() }
         sps = null; pps = null
         pending.clear()
         rendered = 0; fed = 0
@@ -132,11 +141,26 @@ class VideoDecoder(
             c.setCallback(callback)
             c.configure(fmt, surf, null, 0)
             c.start()
+            // The surface can be detached while configure/start run; don't keep
+            // a codec bound to a dead surface, or the next attach would see
+            // codec != null and never start a fresh one.
+            if (surface !== surf) {
+                c.runCatching { stop(); release() }
+                Log.i(TAG, "surface changed during codec start — discarded")
+                return
+            }
             codec = c
             Log.i(TAG, "codec started (async)")
         } catch (e: Exception) {
             Log.e(TAG, "codec init failed", e)
         }
+    }
+
+    /** Codec thread only, like maybeStartCodec, so a start and a stop never interleave. */
+    private fun stopCodec() {
+        val c = codec ?: return
+        codec = null
+        c.runCatching { stop(); release() }
     }
 
     private val callback = object : MediaCodec.Callback() {
@@ -193,5 +217,8 @@ class VideoDecoder(
         }
     }
 
-    companion object { private const val TAG = "VideoDecoder" }
+    companion object {
+        private const val TAG = "VideoDecoder"
+        private const val DETACH_WAIT_MS = 500L
+    }
 }
