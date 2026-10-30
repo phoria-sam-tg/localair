@@ -80,7 +80,7 @@ class YouTubeAppControl(private val context: Context) {
 
     /** Current YouTube playback, position extrapolated to now; null if YouTube has no session. */
     fun snapshot(): Playback? {
-        val c = watched ?: controller() ?: return null
+        val c = watched ?: controller(quiet = true) ?: return null
         val ps = c.playbackState ?: return null
         val state = when (ps.state) {
             PlaybackState.STATE_PLAYING -> Playback.State.PLAYING
@@ -111,12 +111,12 @@ class YouTubeAppControl(private val context: Context) {
         onPlayback?.invoke(snapshot() ?: Playback.IDLE)
     }
 
-    private fun controller(): MediaController? {
+    private fun controller(quiet: Boolean = false): MediaController? {
         val msm = context.getSystemService(MediaSessionManager::class.java)
         val listener = ComponentName(context, MediaAccessListener::class.java)
         return try {
             msm.getActiveSessions(listener).firstOrNull { it.packageName == YOUTUBE_TV }
-                .also { if (it == null) Log.w(TAG, "no active YouTube session to control") }
+                .also { if (it == null && !quiet) Log.w(TAG, "no active YouTube session to control") }
         } catch (e: SecurityException) {
             Log.w(TAG, "notification-listener access not granted — see README")
             null
