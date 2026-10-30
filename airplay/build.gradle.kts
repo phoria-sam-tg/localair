@@ -6,6 +6,8 @@ plugins {
 android {
     namespace = "com.localair.airplay.nativebridge"
     compileSdk = 35
+    // Pinned so every builder compiles the native library with the same toolchain.
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         minSdk = 28

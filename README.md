@@ -105,14 +105,26 @@ done in Kotlin via `NsdManager`, replacing RPiPlay's libdns_sd-based
 
 ## Build
 
-Requires JDK 21 (Temurin recommended), Android SDK 35, NDK r27, CMake 3.22.
+Requires JDK 17 or newer (Temurin recommended), Android SDK 35,
+NDK 27.0.12077973 and CMake 3.22.1; Gradle pins the last two.
 
 ```sh
-./setup-deps.sh                                # clone RPiPlay + libplist
+./setup-deps.sh                                # RPiPlay + libplist at pinned commits
 cp local.properties.example local.properties   # then edit sdk.dir
 ./gradlew :app:assembleDebug                   # installs as com.localair.airplay.debug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+The build is reproducible: `setup-deps.sh` fetches each dependency at a
+pinned commit (and refuses a checkout that has drifted), the Gradle wrapper
+is checksum-verified, and the native library maps the checkout path out of
+its debug info. Two clean `./gradlew :app:assembleRelease` runs from
+different directories produce a byte-identical unsigned APK (verified with
+JDK 17.0.21 on macOS arm64).
+
+The AirPlay URL-video patches in `patches/` are not part of any release;
+`LOCALAIR_URL_VIDEO=1 ./setup-deps.sh` applies them, but they do not compile
+against the pinned RPiPlay yet.
 
 Release builds are signed when `local.properties` names a keystore
 (`release.storeFile` and friends, see `local.properties.example`). Keep the

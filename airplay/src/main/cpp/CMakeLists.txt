@@ -4,6 +4,22 @@ project(airplay_native LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
+# Reproducible builds: keep the checkout's location out of the debug info (and
+# __FILE__), so the GNU build-id -- a hash over the unstripped object -- is the
+# same whichever directory the repo was cloned into. The compiler records its
+# working directory as a resolved real path (/tmp is /private/tmp on macOS), so
+# map both spellings, and AGP's build dir before the repo root it sits in.
+get_filename_component(LOCALAIR_ROOT ${CMAKE_SOURCE_DIR}/../../../.. ABSOLUTE)
+file(REAL_PATH ${LOCALAIR_ROOT} LOCALAIR_ROOT_REAL)
+file(REAL_PATH ${CMAKE_BINARY_DIR} LOCALAIR_BUILD_REAL)
+add_compile_options(
+    -ffile-compilation-dir=.
+    -ffile-prefix-map=${LOCALAIR_BUILD_REAL}=build
+    -ffile-prefix-map=${CMAKE_BINARY_DIR}=build
+    -ffile-prefix-map=${LOCALAIR_ROOT_REAL}=.
+    -ffile-prefix-map=${LOCALAIR_ROOT}=.
+)
+
 set(RPIPLAY_ROOT ${CMAKE_SOURCE_DIR}/../../../../third_party/RPiPlay)
 set(RPIPLAY_LIB ${RPIPLAY_ROOT}/lib)
 set(LIBPLIST_ROOT ${CMAKE_SOURCE_DIR}/../../../../third_party/libplist)
