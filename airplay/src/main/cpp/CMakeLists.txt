@@ -36,6 +36,7 @@ if(EXISTS ${LIBPLIST_ROOT}/src/plist.c)
         ${LIBPLIST_ROOT}/src/out-limd.c
         ${LIBPLIST_ROOT}/src/out-plutil.c
         ${LIBPLIST_ROOT}/src/time64.c
+        ${LIBPLIST_ROOT}/src/common.c
         ${LIBPLIST_ROOT}/src/jsmn.c
         ${LIBPLIST_ROOT}/libcnary/cnary.c
         ${LIBPLIST_ROOT}/libcnary/node.c
