@@ -50,7 +50,11 @@ class DialCastService : Service() {
 
     private fun startServers() {
         val uuid = deviceUuid()
-        val name = DeviceIdentity.deviceName(this)
+        // Deliberately not DeviceIdentity.deviceName() (shared with AirPlay,
+        // and matches mediashell's dead "Living Room TV" too closely) —
+        // this needs to read as obviously the working option in a cast
+        // sheet that also lists the broken built-in receiver.
+        val name = "Projector"
         val descriptionPath = "/dd.xml"
 
         val server = DialHttpServer(
