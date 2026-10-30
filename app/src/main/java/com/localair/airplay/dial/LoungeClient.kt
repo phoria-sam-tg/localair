@@ -23,23 +23,29 @@ import kotlin.concurrent.thread
  * A setPlaylist command from a sender arrives on our subscribe stream as a
  * "playlistModified" event carrying videoId — not literally "setPlaylist".
  *
- * NOT implemented: sending our own status back (nowPlaying/onStateChange),
- * so from the sender's UI this receiver looks mute even once it's playing.
- * Good enough for the closed-loop test harness; real UI polish is later.
+ * Status goes back the same way a remote's commands come in: a bc/bind POST
+ * carrying "nowPlaying" / "onStateChange" (reportPlayback), so the sender's
+ * cast bar follows position and play/pause. The state itself is read from
+ * the YouTube TV app's media session (YouTubeAppControl.watch).
  */
 class LoungeClient(
     private val deviceName: String,
     private val onPlayVideo: (videoId: String, startSeconds: Double?) -> Unit,
     private val onControl: (LoungeControl) -> Unit = {},
+    /** Latest playback state, for a sender's getNowPlaying; null when nothing is playing. */
+    private val currentPlayback: () -> Playback? = { null },
 ) {
     private val deviceId = UUID.randomUUID().toString()
     private var screenId: String? = null
     private var loungeToken: String? = null
-    private var sid: String? = null
-    private var gsession: String? = null
+    @Volatile private var sid: String? = null
+    @Volatile private var gsession: String? = null
     private var lastEventId: Int = 0
     private var commandOffset = 1
+    private var rid = 1
+    @Volatile private var videoId: String? = null
     @Volatile private var running = false
+    private val sendLock = Any()
 
     /** Non-blocking — null until ensureScreen()/startIfNeeded() has actually run once. */
     fun screenIdOrNull(): String? = screenId
@@ -115,6 +121,7 @@ class LoungeClient(
             )
         )
         val text = post("$API_BASE/bc/bind?RID=1&VER=8&CVER=1&auth_failure_option=send_error", body)
+        synchronized(sendLock) { rid = 1; commandOffset = 1 }
         processChunks(text)
         return sid != null && gsession != null
     }
@@ -166,6 +173,7 @@ class LoungeClient(
                     Log.i(TAG, "$type payload: $data")
                     if (!videoId.isNullOrEmpty()) {
                         val startSeconds = data?.optString("currentTime")?.toDoubleOrNull()
+                        this.videoId = videoId
                         onPlayVideo(videoId, startSeconds)
                     } else {
                         Log.w(TAG, "$type with no videoId: $payload")
@@ -176,13 +184,53 @@ class LoungeClient(
                 "stopVideo" -> onControl(LoungeControl.Stop)
                 "seekTo" -> payload.optJSONObject(1)?.optString("newTime")?.toDoubleOrNull()
                     ?.let { onControl(LoungeControl.Seek(it)) }
+                "getNowPlaying" -> thread(name = "$TAG-np", isDaemon = true) {
+                    reportPlayback(currentPlayback() ?: Playback.IDLE, nowPlaying = true)
+                }
                 "noop", "onAutoplayModeChanged", "onPlaylistModeChanged", "loungeStatus",
-                "remoteConnected", "getNowPlaying", "getSubtitlesTrack", "getVolume",
+                "remoteConnected", "getSubtitlesTrack", "getVolume",
                 "getPartyGamesMode", "getDiscoveryDeviceId" -> Unit
                 else -> Log.d(TAG, "unhandled event: $type ($payload)")
             }
         }
     }
+
+    /**
+     * Tells connected senders where playback is. onStateChange moves their
+     * scrubber and play/pause button; nowPlaying (also the answer to
+     * getNowPlaying) names the video too. Blocking network call: call it off
+     * the main thread. Silently skipped until the bind session exists.
+     */
+    fun reportPlayback(p: Playback, nowPlaying: Boolean = false) {
+        if (sid == null || gsession == null) return
+        val fields = linkedMapOf(
+            "currentTime" to "%.3f".format(java.util.Locale.US, p.positionSeconds),
+            "duration" to "%.3f".format(java.util.Locale.US, p.durationSeconds),
+            "state" to p.state.code.toString(),
+            "loadedTime" to "%.3f".format(java.util.Locale.US, p.positionSeconds),
+            "seekableStartTime" to "0",
+            "seekableEndTime" to "%.3f".format(java.util.Locale.US, p.durationSeconds),
+            "cpn" to cpn,
+        )
+        if (nowPlaying) videoId?.let { fields["videoId"] = it }
+        send(if (nowPlaying) "nowPlaying" else "onStateChange", fields)
+    }
+
+    private fun send(command: String, fields: Map<String, String>) = synchronized(sendLock) {
+        rid++
+        val body = buildMap {
+            put("count", "1")
+            put("ofs", (commandOffset++).toString())
+            put("req0__sc", command)
+            fields.forEach { (k, v) -> put("req0_$k", v) }
+        }
+        runCatching { post("$API_BASE/bc/bind?${commonParams()}&RID=$rid", body) }
+            .onSuccess { Log.d(TAG, "sent $command $fields") }
+            .onFailure { Log.w(TAG, "send $command failed: ${it.message}") }
+    }
+
+    /** Client playback nonce: senders expect one per screen session; any opaque token works. */
+    private val cpn = UUID.randomUUID().toString().replace("-", "").take(16)
 
     private fun commonParams(): String = listOf(
         "name" to deviceName,
@@ -236,4 +284,11 @@ sealed class LoungeControl {
     object Pause : LoungeControl() { override fun toString() = "pause" }
     object Stop : LoungeControl() { override fun toString() = "stop" }
     data class Seek(val seconds: Double) : LoungeControl()
+}
+
+/** What the sender's cast bar shows. Lounge state codes are YouTube player states. */
+data class Playback(val state: State, val positionSeconds: Double, val durationSeconds: Double) {
+    enum class State(val code: Int) { UNSTARTED(-1), ENDED(0), PLAYING(1), PAUSED(2), BUFFERING(3) }
+
+    companion object { val IDLE = Playback(State.UNSTARTED, 0.0, 0.0) }
 }

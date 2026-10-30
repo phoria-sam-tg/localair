@@ -8,10 +8,14 @@ which is only there for real senders that don't expose that), pairs as a
 Lounge remote, and sends setPlaylist.
 
 Usage:
-    python3 cast_test_harness.py <http-port> [video_id] [host] [--controls]
+    python3 cast_test_harness.py <http-port> [video_id] [host] [--controls] [--watch SECONDS]
 
 --controls: after setPlaylist, send pause, play, seekTo(60) and stopVideo,
 a few seconds apart, to exercise the relay to the YouTube app's session.
+
+--watch SECONDS: also subscribe as the remote and print every nowPlaying /
+onStateChange the receiver sends back (what a phone's cast bar follows),
+for that long. Each line: wall clock, event, state, currentTime/duration.
 
 <http-port> is DialCastService's random port for this run — read it from
 `adb logcat -s DialCastService:*` ("DIAL up: ..., http=<port>") after
@@ -24,8 +28,10 @@ No multicast involved (SSDP discovery still needs a real phone or a non-WSL
 box — see ticket #1019), this only proves the DIAL-launch + Lounge-pairing
 + command path once a sender already has the receiver's address.
 """
+import json
 import re
 import sys
+import threading
 import time
 import uuid
 from xml.etree import ElementTree
@@ -56,12 +62,48 @@ def get_screen_id_from_status(host: str, http_port: int) -> str:
     return el.text
 
 
+STATES = {"-1": "unstarted", "0": "ended", "1": "playing", "2": "paused", "3": "buffering"}
+
+
+def watch_status(params: dict, seconds: float) -> threading.Thread:
+    """Reads the remote's own bind stream and prints the screen's status events."""
+    def run():
+        q = dict(params, RID="rpc", CI="0", TYPE="xmlhttp")
+        q.pop("v", None)
+        end = time.time() + seconds
+        while time.time() < end:
+            try:
+                with requests.get(f"{API_BASE}/bc/bind", params=q, stream=True,
+                                  timeout=(10, 30)) as r:
+                    for line in r.iter_lines(decode_unicode=True):
+                        if time.time() >= end:
+                            return
+                        for name, data in re.findall(r'\["(nowPlaying|onStateChange)",(\{[^}]*\})\]', line or ""):
+                            d = json.loads(data)
+                            print(f"  [{time.strftime('%H:%M:%S')}] {name:<13} "
+                                  f"{STATES.get(str(d.get('state')), d.get('state')):<9} "
+                                  f"{float(d.get('currentTime') or 0):7.1f}s / "
+                                  f"{float(d.get('duration') or 0):7.1f}s"
+                                  f"{'  ' + d['videoId'] if d.get('videoId') else ''}", flush=True)
+            except requests.RequestException:
+                time.sleep(1)
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
     controls = "--controls" in sys.argv
-    args = [a for a in sys.argv[1:] if a != "--controls"]
+    argv = sys.argv[1:]
+    watch = 0.0
+    if "--watch" in argv:
+        i = argv.index("--watch")
+        watch = float(argv[i + 1])
+        del argv[i:i + 2]
+    args = [a for a in argv if a != "--controls"]
     http_port = int(args[0])
     video_id = args[1] if len(args) > 1 else DEFAULT_VIDEO_ID
     host = args[2] if len(args) > 2 else DEFAULT_HOST
@@ -100,6 +142,8 @@ def main():
         "gsessionid": gsession, "device": "REMOTE_CONTROL", "app": "youtube-desktop",
         "VER": "8", "v": "2", "RID": 2,
     }
+    watcher = watch_status(params, watch) if watch else None
+
     cmd_body = {"count": 1, "ofs": 1, "req0__sc": "setPlaylist", "req0_videoId": video_id}
     r = requests.post(f"{API_BASE}/bc/bind", data=cmd_body, params=params)
     print(f"setPlaylist({video_id}) -> {r.status_code} {r.text[:100]}")
@@ -114,6 +158,9 @@ def main():
             r = requests.post(f"{API_BASE}/bc/bind", data=body, params=params)
             print(f"{command}{extra or ''} -> {r.status_code}")
             time.sleep(6)
+
+    if watcher:
+        watcher.join()
 
 
 if __name__ == "__main__":
