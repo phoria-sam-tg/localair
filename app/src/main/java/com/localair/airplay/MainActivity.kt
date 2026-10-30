@@ -67,10 +67,13 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         setContentView(root)
 
         val svcIntent = Intent(this, AirPlayService::class.java)
+        val dialIntent = Intent(this, com.localair.airplay.dial.DialCastService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(svcIntent)
+            startForegroundService(dialIntent)
         } else {
             startService(svcIntent)
+            startService(dialIntent)
         }
 
         registerReceiver(framesReceiver, IntentFilter(AirPlayService.ACTION_FRAMES_CHANGED))

@@ -16,6 +16,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Lets a debug build install alongside a signed release instead
+            // of fighting it over the same applicationId/signature.
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

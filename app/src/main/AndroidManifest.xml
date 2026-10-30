@@ -39,5 +39,10 @@
             android:name=".AirPlayService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name=".dial.DialCastService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>
