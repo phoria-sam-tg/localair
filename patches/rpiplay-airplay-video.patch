@@ -1,0 +1,91 @@
+diff --git a/lib/raop.h b/lib/raop.h
+--- a/lib/raop.h
++++ b/lib/raop.h
+@@ -48,6 +48,12 @@ struct raop_callbacks_s {
+     void  (*audio_set_coverart)(void *cls, const void *buffer, int buflen);
+     void  (*audio_remote_control_id)(void *cls, const char *dacp_id, const char *active_remote_header);
+     void  (*audio_set_progress)(void *cls, unsigned int start, unsigned int curr, unsigned int end);
++
++    /* AirPlay video (URL streaming) */
++    void  (*play_url)(void *cls, const char *location, double start_pos);
++    void  (*play_stop)(void *cls);
++    void  (*play_set_rate)(void *cls, float rate);
++    void  (*play_get_info)(void *cls, double *duration, double *position, float *rate);
+ };
+ typedef struct raop_callbacks_s raop_callbacks_t;
+
+diff --git a/lib/raop.c b/lib/raop.c
+--- a/lib/raop.c
++++ b/lib/raop.c
+@@ -197,6 +197,82 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
+     } else if (!strcmp(method, "TEARDOWN")) {
+         //http_response_add_header(*response, "Connection", "close");
++    } else if (!strcmp(method, "POST") && !strcmp(url, "/play")) {
++        int datalen = 0;
++        const char *data = http_request_get_data(request, &datalen);
++        if (data && datalen > 0 && conn->raop->callbacks.play_url) {
++            plist_t root = NULL;
++            plist_from_memory(data, datalen, &root, NULL);
++            if (root) {
++                plist_t loc_node = plist_dict_get_item(root, "Content-Location");
++                plist_t pos_node = plist_dict_get_item(root, "Start-Position");
++                char *location = NULL;
++                double start_pos = 0.0;
++                if (loc_node) plist_get_string_val(loc_node, &location);
++                if (pos_node) plist_get_real_val(pos_node, &start_pos);
++                if (location) {
++                    logger_log(conn->raop->logger, LOGGER_INFO, "AirPlay /play URL=%s start=%.2f", location, start_pos);
++                    conn->raop->callbacks.play_url(conn->raop->callbacks.cls, location, start_pos);
++                    free(location);
++                }
++                plist_free(root);
++            }
++        }
++    } else if (!strcmp(method, "POST") && !strcmp(url, "/stop")) {
++        logger_log(conn->raop->logger, LOGGER_INFO, "AirPlay /stop");
++        if (conn->raop->callbacks.play_stop) {
++            conn->raop->callbacks.play_stop(conn->raop->callbacks.cls);
++        }
++    } else if (!strcmp(method, "POST") && strstr(url, "/rate")) {
++        const char *q = strstr(url, "value=");
++        float rate = 1.0f;
++        if (q) rate = (float) atof(q + 6);
++        logger_log(conn->raop->logger, LOGGER_INFO, "AirPlay /rate value=%.1f", rate);
++        if (conn->raop->callbacks.play_set_rate) {
++            conn->raop->callbacks.play_set_rate(conn->raop->callbacks.cls, rate);
++        }
++    } else if (!strcmp(method, "GET") && !strcmp(url, "/playback-info")) {
++        double duration = 0, position = 0;
++        float rate = 1.0f;
++        if (conn->raop->callbacks.play_get_info) {
++            conn->raop->callbacks.play_get_info(conn->raop->callbacks.cls, &duration, &position, &rate);
++        }
++        char info[2048];
++        int info_len = snprintf(info, sizeof(info),
++            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
++            "<plist version=\"1.0\">\n<dict>\n"
++            "<key>duration</key><real>%f</real>\n"
++            "<key>position</key><real>%f</real>\n"
++            "<key>rate</key><real>%f</real>\n"
++            "<key>readyToPlay</key><true/>\n"
++            "<key>playbackBufferEmpty</key><false/>\n"
++            "<key>playbackBufferFull</key><true/>\n"
++            "<key>playbackLikelyToKeepUp</key><true/>\n"
++            "<key>loadedTimeRanges</key><array><dict>"
++            "<key>start</key><real>0.0</real>"
++            "<key>duration</key><real>%f</real>"
++            "</dict></array>\n"
++            "<key>seekableTimeRanges</key><array><dict>"
++            "<key>start</key><real>0.0</real>"
++            "<key>duration</key><real>%f</real>"
++            "</dict></array>\n"
++            "</dict>\n</plist>\n",
++            duration, position, (double) rate, duration, duration);
++        http_response_add_header(*response, "Content-Type", "text/x-apple-plist+xml");
++        response_data = (char *) malloc(info_len + 1);
++        memcpy(response_data, info, info_len + 1);
++        response_datalen = info_len;
++    } else if (!strcmp(method, "POST") && !strcmp(url, "/audioMode")) {
++        /* no-op, just acknowledge */
+         if (conn->raop_rtp != NULL && raop_rtp_is_running(conn->raop_rtp)) {
