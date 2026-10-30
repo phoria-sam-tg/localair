@@ -29,7 +29,7 @@ import kotlin.concurrent.thread
  */
 class LoungeClient(
     private val deviceName: String,
-    private val onPlayVideo: (videoId: String) -> Unit,
+    private val onPlayVideo: (videoId: String, startSeconds: Double?) -> Unit,
 ) {
     private val deviceId = UUID.randomUUID().toString()
     private var screenId: String? = null
@@ -162,9 +162,10 @@ class LoungeClient(
                 "playlistModified", "setPlaylist" -> {
                     val data = payload.optJSONObject(1)
                     val videoId = data?.optString("videoId")
+                    Log.i(TAG, "$type payload: $data")
                     if (!videoId.isNullOrEmpty()) {
-                        Log.i(TAG, "$type: videoId=$videoId")
-                        onPlayVideo(videoId)
+                        val startSeconds = data?.optString("currentTime")?.toDoubleOrNull()
+                        onPlayVideo(videoId, startSeconds)
                     } else {
                         Log.w(TAG, "$type with no videoId: $payload")
                     }

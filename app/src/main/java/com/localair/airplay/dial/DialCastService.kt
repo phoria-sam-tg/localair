@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -23,12 +24,13 @@ import java.util.UUID
  * that and connect straight away — LoungeClient.ensureScreen() runs at
  * startup either way so that path is always open, not just after a launch.
  *
- * STUB: onPlayVideo only logs the video id — it does not resolve a YouTube
- * video id to a playable stream URL. That's a separate, much bigger
- * problem (YouTube's real stream URLs are signed/ciphered, effectively
- * requiring something like yt-dlp's extraction logic) and deliberately not
- * attempted here. This proves commands reach the receiver; actual playback
- * is the next piece.
+ * Playback: hands the video id to the YouTube TV app already on the
+ * device (com.google.android.youtube.tv) via ACTION_VIEW rather than
+ * resolving a playable stream ourselves — that's a separate, much bigger
+ * problem (real YouTube stream URLs are signed/ciphered). Shipping the
+ * hand-off now per ticket #1019; a real in-app player (NewPipeExtractor)
+ * is the later upgrade if this feels clunky. No pause/seek/stop relay yet
+ * — out of scope for this pass, see ticket.
  */
 class DialCastService : Service() {
 
@@ -65,7 +67,7 @@ class DialCastService : Service() {
 
         val client = LoungeClient(
             deviceName = name,
-            onPlayVideo = { videoId -> Log.i(TAG, "would play videoId=$videoId (stream resolution not implemented)") },
+            onPlayVideo = { videoId, startSeconds -> playInYouTubeApp(videoId, startSeconds) },
         )
         lounge = client
 
@@ -86,6 +88,20 @@ class DialCastService : Service() {
         client.startIfNeeded()
 
         Log.i(TAG, "DIAL up: $name, http=$httpPort, uuid=$uuid")
+    }
+
+    private fun playInYouTubeApp(videoId: String, startSeconds: Double?) {
+        val url = buildString {
+            append("https://www.youtube.com/watch?v=$videoId")
+            if (startSeconds != null && startSeconds > 0) append("&t=${startSeconds.toInt()}")
+        }
+        Log.i(TAG, "handing off to YouTube app: $url")
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            setPackage("com.google.android.youtube.tv")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { Log.e(TAG, "YouTube app hand-off failed", it) }
     }
 
     private fun deviceUuid(): String {
