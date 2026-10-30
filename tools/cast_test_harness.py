@@ -8,7 +8,10 @@ which is only there for real senders that don't expose that), pairs as a
 Lounge remote, and sends setPlaylist.
 
 Usage:
-    python3 cast_test_harness.py <http-port> [video_id] [host]
+    python3 cast_test_harness.py <http-port> [video_id] [host] [--controls]
+
+--controls: after setPlaylist, send pause, play, seekTo(60) and stopVideo,
+a few seconds apart, to exercise the relay to the YouTube app's session.
 
 <http-port> is DialCastService's random port for this run — read it from
 `adb logcat -s DialCastService:*` ("DIAL up: ..., http=<port>") after
@@ -23,6 +26,7 @@ box — see ticket #1019), this only proves the DIAL-launch + Lounge-pairing
 """
 import re
 import sys
+import time
 import uuid
 from xml.etree import ElementTree
 
@@ -56,9 +60,11 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    http_port = int(sys.argv[1])
-    video_id = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_VIDEO_ID
-    host = sys.argv[3] if len(sys.argv) > 3 else DEFAULT_HOST
+    controls = "--controls" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--controls"]
+    http_port = int(args[0])
+    video_id = args[1] if len(args) > 1 else DEFAULT_VIDEO_ID
+    host = args[2] if len(args) > 2 else DEFAULT_HOST
 
     dial_launch(host, http_port)
     screen_id = get_screen_id_from_status(host, http_port)
@@ -97,6 +103,17 @@ def main():
     cmd_body = {"count": 1, "ofs": 1, "req0__sc": "setPlaylist", "req0_videoId": video_id}
     r = requests.post(f"{API_BASE}/bc/bind", data=cmd_body, params=params)
     print(f"setPlaylist({video_id}) -> {r.status_code} {r.text[:100]}")
+
+    if controls:
+        steps = [("pause", {}), ("play", {}), ("seekTo", {"newTime": "60"}), ("stopVideo", {})]
+        time.sleep(12)  # let the YouTube app start playing before the first command
+        for ofs, (command, extra) in enumerate(steps, start=2):
+            params["RID"] = ofs + 1
+            body = {"count": 1, "ofs": ofs, "req0__sc": command}
+            body.update({f"req0_{k}": v for k, v in extra.items()})
+            r = requests.post(f"{API_BASE}/bc/bind", data=body, params=params)
+            print(f"{command}{extra or ''} -> {r.status_code}")
+            time.sleep(6)
 
 
 if __name__ == "__main__":

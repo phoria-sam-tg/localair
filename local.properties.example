@@ -1,1 +1,7 @@
 sdk.dir=/Users/you/Library/Android/sdk
+
+# Optional: sign release builds. Keep the keystore outside the repo.
+# release.storeFile=/path/to/localair-release.jks
+# release.storePassword=
+# release.keyAlias=localair
+# release.keyPassword=

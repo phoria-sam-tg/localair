@@ -1,25 +1,79 @@
 # localair
 
-A small, native AirPlay 2 mirroring receiver for Android TV / Android-based
-projectors. No ads, no telemetry, no account, ~10 MB APK.
+**AirPlay, plus YouTube casting, for Android TVs whose built-in Chromecast
+Google refuses.**
 
-Built because every app-store AirPlay receiver for Android TV is either
-adware, paywalled, or both — and the underlying protocol stack
-([RPiPlay](https://github.com/FD-/RPiPlay)) has been freely available for
-years. localair is a thin Kotlin shell around RPiPlay's RTSP / FairPlay /
-mirror code, plus a `MediaCodec` decode path that renders straight to a
-`SurfaceView`.
+Some Android TV devices, many Xiaomi / Fengmi projectors among them, still
+ship Google's Cast receiver, but Google no longer issues it a device
+certificate. The receiver shows up in your phone's cast menu, every cast
+fails, and nothing on the device can fix it. localair is a small native
+receiver that gives those devices their casting back:
+
+- **AirPlay** from iPhone, iPad and Mac: screen mirroring, and video URLs
+  handed over by apps.
+- **YouTube casting** from the YouTube app on any phone. localair appears
+  in the cast menu as **Projector**. It speaks DIAL plus YouTube's own
+  Lounge protocol, which needs no Google device certificate, and plays
+  the video in the YouTube app already installed on the TV.
+- **Ready at boot.** Both receivers start when the TV starts, so you can
+  cast without opening anything first.
+
+No ads, no telemetry, no account.
 
 ## Status
 
-| Feature                       | State        |
-| ----------------------------- | ------------ |
-| AirPlay 2 pairing handshake   | ✅ working    |
-| FairPlay v2 (`/fp-setup`)     | ✅ working    |
-| Mirror SETUP / RECORD         | ✅ working    |
-| H.264 video → MediaCodec      | ✅ working    |
-| AAC-ELD audio → AudioTrack    | ⏳ stubbed    |
-| Tested hardware               | Xiaomi MiProjL1 (Android 9 / armv7) |
+| Feature | State |
+| --- | --- |
+| AirPlay 2 pairing + FairPlay v2 | ✅ |
+| AirPlay screen mirroring (H.264 → MediaCodec) | ✅ |
+| AirPlay video URL playback (ExoPlayer) | ✅ ¹ |
+| AirPlay audio (AAC-ELD) | ✅ ¹ |
+| YouTube: discovery (DIAL/SSDP) and launch | ✅ |
+| YouTube: play a video, at a start time | ✅ hands off to the YouTube TV app |
+| YouTube: pause / play / seek / stop from the phone | ✅ relayed to the YouTube app's media session (needs the one-time grant below) |
+| YouTube: now-playing status shown back on the phone | ❌ not yet |
+| Start at boot | ✅ |
+| Tested hardware | Xiaomi Mi Laser projector MiProjL1 (Android 9, armv7) |
+
+¹ Built on the April AirPlay work; working before 1.0, not retested for
+this release. The 1.0 test pass covered YouTube casting (launch, play,
+pause, play, seek, stop), boot start, and AirPlay advertising after a reboot.
+
+## What it doesn't do
+
+- It isn't a Google Cast receiver. Apps that only speak Cast (Netflix,
+  Disney+, Chrome tab casting, Google Photos) still can't cast to it. YouTube
+  works because it also supports DIAL and Lounge pairing.
+- YouTube playback happens in the official YouTube TV app
+  (`com.google.android.youtube.tv`), so that app must be installed. Its
+  sign-in, ads and recommendations apply.
+- The phone's YouTube app doesn't show progress for localair yet, so the
+  sender's scrubber won't move.
+
+## Install
+
+1. Turn on **Developer options → USB debugging** (or network debugging) on
+   the TV and connect: `adb connect <tv-ip>:5555`.
+2. Install the APK from the
+   [latest release](https://github.com/phoria-sam-tg/localair/releases/latest):
+   ```sh
+   adb install -r localair-1.0.0.apk
+   ```
+3. Allow localair to control the YouTube app's playback. Android TV has no
+   settings screen for this, so grant it once over adb:
+   ```sh
+   adb shell cmd notification allow_listener \
+     com.localair.airplay/com.localair.airplay.dial.MediaAccessListener
+   ```
+   Without the grant, casting still starts videos. Pause, seek and stop
+   from the phone just don't reach the TV.
+4. Open localair once. Android keeps a newly installed app stopped until it has been opened, so the boot start only works after that. From then on it starts by itself whenever the TV starts.
+
+On a phone, open YouTube, tap the cast icon and pick **Projector**. For
+AirPlay, pick the TV's name in Control Centre → Screen Mirroring.
+
+If the TV's built-in receiver also appears (often as "Living Room TV" or
+similar), that's the broken one. Pick **Projector**.
 
 ## Architecture
 
@@ -54,11 +108,20 @@ done in Kotlin via `NsdManager`, replacing RPiPlay's libdns_sd-based
 Requires JDK 21 (Temurin recommended), Android SDK 35, NDK r27, CMake 3.22.
 
 ```sh
-./setup-deps.sh                           # clone RPiPlay + libplist
+./setup-deps.sh                                # clone RPiPlay + libplist
 cp local.properties.example local.properties   # then edit sdk.dir
-./gradlew :app:assembleDebug
+./gradlew :app:assembleDebug                   # installs as com.localair.airplay.debug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+Release builds are signed when `local.properties` names a keystore
+(`release.storeFile` and friends, see `local.properties.example`). Keep the
+keystore outside the repo.
+
+`tools/cast_test_harness.py` casts to a running receiver from a script, with
+no phone: a DIAL launch, Lounge pairing, then `setPlaylist`, and with
+`--controls` also pause, play, seek and stop. Use it for a build-install-cast
+loop.
 
 If you don't have a wireless ADB pairing UI on your Android TV
 (common on older Xiaomi / FengOS builds), enabling **Developer options →
@@ -77,6 +140,7 @@ Third-party components and their licenses:
 | RPiPlay             | GPL-3.0           |
 | libplist            | LGPL-2.1-or-later |
 | OpenSSL (libcrypto) | OpenSSL / Apache-2.0 dual |
+| AndroidX Media3 (ExoPlayer) | Apache-2.0 |
 
 ## Credits
 
