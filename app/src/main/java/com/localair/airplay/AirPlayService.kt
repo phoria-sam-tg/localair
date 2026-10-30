@@ -22,7 +22,12 @@ class AirPlayService : Service() {
     private var multicastLock: WifiManager.MulticastLock? = null
     private lateinit var mdns: MdnsAdvertiser
     private val audio = AudioDecoder()
-    val video = VideoDecoder { hasFrames -> onFramesChanged(hasFrames) }
+    val video = VideoDecoder(
+        onFramesChanged = { hasFrames -> onFramesChanged(hasFrames) },
+        onVideoSize = { w, h ->
+            sendBroadcast(Intent(ACTION_VIDEO_SIZE).putExtra("width", w).putExtra("height", h))
+        },
+    )
     lateinit var urlPlayer: UrlPlayer; private set
     private val handler = Handler(Looper.getMainLooper())
     private var port = 0
@@ -163,6 +168,7 @@ class AirPlayService : Service() {
 
     companion object {
         const val ACTION_FRAMES_CHANGED = "com.localair.airplay.FRAMES_CHANGED"
+        const val ACTION_VIDEO_SIZE = "com.localair.airplay.VIDEO_SIZE"
         private const val TAG = "AirPlayService"
         private const val CHANNEL = "airplay"
         private const val HEALTH_INTERVAL_MS = 10_000L

@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.util.Rational
 import android.view.Gravity
 import android.view.SurfaceHolder
@@ -29,9 +30,36 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private val framesReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
-            val has = intent.getBooleanExtra("hasFrames", false)
-            waiting.visibility = if (has) View.GONE else View.VISIBLE
+            when (intent.action) {
+                AirPlayService.ACTION_FRAMES_CHANGED -> {
+                    val has = intent.getBooleanExtra("hasFrames", false)
+                    waiting.visibility = if (has) View.GONE else View.VISIBLE
+                    // Back to full screen between sessions; URL playback shares this view.
+                    if (!has) surfaceView.layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                }
+                AirPlayService.ACTION_VIDEO_SIZE -> fitVideo(
+                    intent.getIntExtra("width", 0), intent.getIntExtra("height", 0)
+                )
+            }
         }
+    }
+
+    /**
+     * Sizes the SurfaceView to the video's aspect ratio, centred, so a portrait
+     * phone or a mid-stream size change is letterboxed instead of stretched to
+     * the full screen.
+     */
+    private fun fitVideo(w: Int, h: Int) {
+        val root = surfaceView.parent as? View ?: return
+        val rw = root.width; val rh = root.height
+        if (w <= 0 || h <= 0 || rw <= 0 || rh <= 0) return
+        val scale = minOf(rw.toFloat() / w, rh.toFloat() / h)
+        surfaceView.layoutParams = FrameLayout.LayoutParams(
+            (w * scale).toInt(), (h * scale).toInt(), Gravity.CENTER
+        )
+        Log.i(TAG, "video ${w}x$h -> view ${(w * scale).toInt()}x${(h * scale).toInt()}")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,7 +104,10 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             startService(dialIntent)
         }
 
-        registerReceiver(framesReceiver, IntentFilter(AirPlayService.ACTION_FRAMES_CHANGED))
+        registerReceiver(framesReceiver, IntentFilter().apply {
+            addAction(AirPlayService.ACTION_FRAMES_CHANGED)
+            addAction(AirPlayService.ACTION_VIDEO_SIZE)
+        })
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -126,6 +157,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     companion object {
+        private const val TAG = "MainActivity"
         /** True between onStart and onStop; AirPlayService won't re-launch a visible activity. */
         @Volatile var visible = false; private set
     }

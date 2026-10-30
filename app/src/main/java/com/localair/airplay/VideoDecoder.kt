@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit
  */
 class VideoDecoder(
     private val onFramesChanged: (Boolean) -> Unit = {},
+    /** Displayed (cropped) video size, whenever the decoder reports a new one. */
+    private val onVideoSize: (width: Int, height: Int) -> Unit = { _, _ -> },
 ) : VideoSink {
 
     @Volatile private var codec: MediaCodec? = null
@@ -78,7 +80,18 @@ class VideoDecoder(
     }
 
     override fun onNalUnit(data: ByteArray, ptsUs: Long) {
+        val oldSps = sps
         extractParams(data)
+        // iOS sends a new SPS when the mirrored size or orientation changes
+        // (rotating, leaving an app). Start a fresh codec on the new parameters
+        // instead of relying on in-band adaptive playback, which this codec was
+        // never configured for; frames queued under the old SPS are dropped.
+        val newSps = sps
+        if (oldSps != null && newSps != null && !oldSps.contentEquals(newSps) && codec != null) {
+            Log.i(TAG, "SPS changed (${oldSps.size}B -> ${newSps.size}B): restarting codec")
+            pending.clear()
+            codecHandler.post { stopCodec(); maybeStartCodec() }
+        }
         if (!hasFrames && sps != null && pps != null) {
             hasFrames = true
             onFramesChanged(true)
@@ -210,11 +223,23 @@ class VideoDecoder(
 
         override fun onOutputFormatChanged(c: MediaCodec, fmt: MediaFormat) {
             Log.i(TAG, "output format: $fmt")
+            if (c !== codec) return
+            val (w, h) = displaySize(fmt)
+            if (w > 0 && h > 0) onVideoSize(w, h)
         }
 
         override fun onError(c: MediaCodec, e: MediaCodec.CodecException) {
             Log.e(TAG, "codec error: ${e.diagnosticInfo}", e)
         }
+    }
+
+    /** Width/height after the crop rect (the decoder's buffer is often larger than the picture). */
+    private fun displaySize(fmt: MediaFormat): Pair<Int, Int> {
+        fun int(key: String) = if (fmt.containsKey(key)) fmt.getInteger(key) else -1
+        val l = int("crop-left"); val r = int("crop-right")
+        val t = int("crop-top"); val b = int("crop-bottom")
+        return if (l >= 0 && r >= l && t >= 0 && b >= t) (r - l + 1) to (b - t + 1)
+        else int(MediaFormat.KEY_WIDTH) to int(MediaFormat.KEY_HEIGHT)
     }
 
     companion object {
