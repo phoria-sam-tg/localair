@@ -140,35 +140,46 @@ class VideoDecoder(
     }
 
     private val callback = object : MediaCodec.Callback() {
+        // Every callback checks it still belongs to the live codec: detachSurface()
+        // and onSessionEnd() release a codec while its callbacks (and the delayed
+        // re-poll below) can still be in flight, and touching a released codec
+        // throws IllegalStateException, which crashed the service.
         override fun onInputBufferAvailable(c: MediaCodec, idx: Int) {
+            if (c !== codec) return
             val entry = pending.poll()
             if (entry == null) {
                 codecHandler.postDelayed({
+                    if (c !== codec) return@postDelayed
                     val late = pending.poll()
-                    if (late != null) {
-                        val (nal, pts) = late
-                        val buf = c.getInputBuffer(idx) ?: return@postDelayed
-                        buf.clear(); buf.put(nal)
-                        c.queueInputBuffer(idx, 0, nal.size, pts, 0)
-                        fed++
-                    } else {
-                        c.queueInputBuffer(idx, 0, 0, 0, 0)
-                    }
+                    if (late != null) feed(c, idx, late.first, late.second)
+                    else runCatching { c.queueInputBuffer(idx, 0, 0, 0, 0) }
                 }, 5)
                 return
             }
-            val (nal, pts) = entry
-            val buf = c.getInputBuffer(idx) ?: return
-            buf.clear(); buf.put(nal)
-            c.queueInputBuffer(idx, 0, nal.size, pts, 0)
-            fed++
+            feed(c, idx, entry.first, entry.second)
             if (fed == 1L || fed == 10L || fed % 300 == 0L) {
                 Log.i(TAG, "fed=$fed rendered=$rendered queue=${pending.size}")
             }
         }
 
+        private fun feed(c: MediaCodec, idx: Int, nal: ByteArray, pts: Long) {
+            try {
+                val buf = c.getInputBuffer(idx) ?: return
+                buf.clear(); buf.put(nal)
+                c.queueInputBuffer(idx, 0, nal.size, pts, 0)
+                fed++
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "input after codec release, dropped")
+            }
+        }
+
         override fun onOutputBufferAvailable(c: MediaCodec, idx: Int, info: MediaCodec.BufferInfo) {
-            c.releaseOutputBuffer(idx, true)
+            if (c !== codec) return
+            try {
+                c.releaseOutputBuffer(idx, true)
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "output after codec release, dropped"); return
+            }
             rendered++
             if (rendered == 1L || rendered % 60 == 0L) Log.i(TAG, "rendered $rendered frames")
         }

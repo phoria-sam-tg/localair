@@ -92,6 +92,16 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         waiting.visibility = View.VISIBLE
     }
 
+    override fun onStart() {
+        super.onStart()
+        visible = true
+    }
+
+    override fun onStop() {
+        visible = false
+        super.onStop()
+    }
+
     override fun onDestroy() {
         unregisterReceiver(framesReceiver)
         super.onDestroy()
@@ -113,5 +123,10 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
             )
         }
+    }
+
+    companion object {
+        /** True between onStart and onStop; AirPlayService won't re-launch a visible activity. */
+        @Volatile var visible = false; private set
     }
 }
