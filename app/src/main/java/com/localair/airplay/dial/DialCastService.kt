@@ -16,21 +16,26 @@ import java.util.UUID
 /**
  * YouTube-via-DIAL, running alongside AirPlayService (separate protocol,
  * separate discovery mechanism — see SsdpResponder's doc comment). Owns the
- * SSDP responder and the DIAL HTTP server; a launch call hands us a pairing
- * code and nothing more happens with it yet.
+ * SSDP responder, the DIAL HTTP server, and the Lounge client. A real
+ * phone's launch POST carries a pairingCode that LoungeClient registers
+ * against our screen_id; a sender that already knows our screen_id (e.g.
+ * read off the status XML's additionalData, see DialHttpServer) can skip
+ * that and connect straight away — LoungeClient.ensureScreen() runs at
+ * startup either way so that path is always open, not just after a launch.
  *
- * NOT wired up: the Lounge API client (youtube.com/api/lounge/ — exchanging
- * the pairing code for a screen token, then long-polling bc/bind for
- * setPlaylist/play/pause). That's the next piece, deliberately left for a
- * second look before it starts talking to YouTube's servers — see ticket
- * #1019. Playback itself can reuse the existing ExoPlayer-backed player
- * once that lands.
+ * STUB: onPlayVideo only logs the video id — it does not resolve a YouTube
+ * video id to a playable stream URL. That's a separate, much bigger
+ * problem (YouTube's real stream URLs are signed/ciphered, effectively
+ * requiring something like yt-dlp's extraction logic) and deliberately not
+ * attempted here. This proves commands reach the receiver; actual playback
+ * is the next piece.
  */
 class DialCastService : Service() {
 
     private var multicastLock: WifiManager.MulticastLock? = null
     private var ssdp: SsdpResponder? = null
     private var http: DialHttpServer? = null
+    private var lounge: LoungeClient? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -44,6 +49,7 @@ class DialCastService : Service() {
     override fun onDestroy() {
         ssdp?.stop()
         http?.stop()
+        lounge?.stop()
         multicastLock?.release()
         super.onDestroy()
     }
@@ -57,11 +63,18 @@ class DialCastService : Service() {
         val name = "Projector"
         val descriptionPath = "/dd.xml"
 
+        val client = LoungeClient(
+            deviceName = name,
+            onPlayVideo = { videoId -> Log.i(TAG, "would play videoId=$videoId (stream resolution not implemented)") },
+        )
+        lounge = client
+
         val server = DialHttpServer(
             uuid = uuid,
             friendlyName = name,
             descriptionPath = descriptionPath,
-            onLaunch = { pairingCode -> Log.i(TAG, "launch: pairingCode=$pairingCode (Lounge API not wired up yet)") },
+            screenId = { client.screenIdOrNull() },
+            onLaunch = { pairingCode -> client.registerPairingCode(pairingCode) },
         )
         val httpPort = server.start()
         http = server
@@ -69,6 +82,8 @@ class DialCastService : Service() {
         val responder = SsdpResponder(uuid = uuid, httpPort = httpPort, descriptionPath = descriptionPath)
         responder.start()
         ssdp = responder
+
+        client.startIfNeeded()
 
         Log.i(TAG, "DIAL up: $name, http=$httpPort, uuid=$uuid")
     }

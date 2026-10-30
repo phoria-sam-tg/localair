@@ -25,6 +25,7 @@ class DialHttpServer(
     private val uuid: String,
     private val friendlyName: String,
     private val descriptionPath: String,
+    private val screenId: () -> String?,
     private val onLaunch: (pairingCode: String) -> Unit,
 ) {
     private var server: ServerSocket? = null
@@ -121,7 +122,12 @@ class DialHttpServer(
 
     private fun statusResponse(): ByteArray {
         val state = if (appRunning) "running" else "stopped"
-        val xml = """<?xml version="1.0" encoding="UTF-8"?><service xmlns="urn:dial-multiscreen-org:schemas:dial"><name>YouTube</name><state>$state</state></service>"""
+        // additionalData/screenId: not required by the DIAL spec, but some
+        // senders (and our own test harness) read it straight off here to
+        // skip the pairing-code round trip entirely — see LoungeClient.
+        val id = screenId()
+        val additional = if (id != null) "<additionalData><screenId>$id</screenId></additionalData>" else ""
+        val xml = """<?xml version="1.0" encoding="UTF-8"?><service xmlns="urn:dial-multiscreen-org:schemas:dial"><name>YouTube</name><state>$state</state>$additional</service>"""
         return httpResponse(200, "OK", "text/xml", xml)
     }
 
