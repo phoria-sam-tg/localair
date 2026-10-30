@@ -40,8 +40,12 @@ android {
             // Lets a debug build install alongside a signed release instead
             // of fighting it over the same applicationId/signature.
             applicationIdSuffix = ".debug"
+            // ...and advertise as a different receiver, so phones on the same
+            // network never pick the test build by mistake.
+            buildConfigField("boolean", "DEV_RECEIVER", "true")
         }
         release {
+            buildConfigField("boolean", "DEV_RECEIVER", "false")
             signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -53,7 +57,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { viewBinding = true }
+    buildFeatures { viewBinding = true; buildConfig = true }
 }
 
 dependencies {

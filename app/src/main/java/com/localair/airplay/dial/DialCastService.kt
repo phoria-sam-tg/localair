@@ -63,7 +63,7 @@ class DialCastService : Service() {
         // and matches mediashell's dead "Living Room TV" too closely) —
         // this needs to read as obviously the working option in a cast
         // sheet that also lists the broken built-in receiver.
-        val name = "Projector"
+        val name = "Projector" + com.localair.airplay.DeviceIdentity.nameSuffix
         val descriptionPath = "/dd.xml"
 
         val client = LoungeClient(
