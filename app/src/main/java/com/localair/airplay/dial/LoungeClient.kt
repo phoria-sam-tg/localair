@@ -30,6 +30,7 @@ import kotlin.concurrent.thread
 class LoungeClient(
     private val deviceName: String,
     private val onPlayVideo: (videoId: String, startSeconds: Double?) -> Unit,
+    private val onControl: (LoungeControl) -> Unit = {},
 ) {
     private val deviceId = UUID.randomUUID().toString()
     private var screenId: String? = null
@@ -170,6 +171,11 @@ class LoungeClient(
                         Log.w(TAG, "$type with no videoId: $payload")
                     }
                 }
+                "play" -> onControl(LoungeControl.Play)
+                "pause" -> onControl(LoungeControl.Pause)
+                "stopVideo" -> onControl(LoungeControl.Stop)
+                "seekTo" -> payload.optJSONObject(1)?.optString("newTime")?.toDoubleOrNull()
+                    ?.let { onControl(LoungeControl.Seek(it)) }
                 "noop", "onAutoplayModeChanged", "onPlaylistModeChanged", "loungeStatus",
                 "remoteConnected", "getNowPlaying", "getSubtitlesTrack", "getVolume",
                 "getPartyGamesMode", "getDiscoveryDeviceId" -> Unit
@@ -222,4 +228,12 @@ class LoungeClient(
         private const val TAG = "LoungeClient"
         private const val API_BASE = "https://www.youtube.com/api/lounge"
     }
+}
+
+/** Transport commands a sender can send after playback has started. */
+sealed class LoungeControl {
+    object Play : LoungeControl() { override fun toString() = "play" }
+    object Pause : LoungeControl() { override fun toString() = "pause" }
+    object Stop : LoungeControl() { override fun toString() = "stop" }
+    data class Seek(val seconds: Double) : LoungeControl()
 }

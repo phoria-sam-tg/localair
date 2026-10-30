@@ -29,8 +29,8 @@ import java.util.UUID
  * resolving a playable stream ourselves — that's a separate, much bigger
  * problem (real YouTube stream URLs are signed/ciphered). Shipping the
  * hand-off now per ticket #1019; a real in-app player (NewPipeExtractor)
- * is the later upgrade if this feels clunky. No pause/seek/stop relay yet
- * — out of scope for this pass, see ticket.
+ * is the later upgrade if this feels clunky. Pause, play, seek and stop
+ * from the sender are relayed to that app's media session (YouTubeAppControl).
  */
 class DialCastService : Service() {
 
@@ -38,6 +38,7 @@ class DialCastService : Service() {
     private var ssdp: SsdpResponder? = null
     private var http: DialHttpServer? = null
     private var lounge: LoungeClient? = null
+    private val appControl by lazy { YouTubeAppControl(this) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -68,6 +69,7 @@ class DialCastService : Service() {
         val client = LoungeClient(
             deviceName = name,
             onPlayVideo = { videoId, startSeconds -> playInYouTubeApp(videoId, startSeconds) },
+            onControl = { control -> appControl.apply(control) },
         )
         lounge = client
 
