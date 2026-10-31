@@ -10,7 +10,7 @@ Lounge remote, and sends setPlaylist.
 Usage:
     python3 cast_test_harness.py <http-port> [video_id] [host] [--controls] [--watch SECONDS]
 
---controls: after setPlaylist, send pause, play, seekTo(60) and stopVideo,
+--controls: after setPlaylist, send pause, play, seekTo(60), setVolume(15), next and stopVideo,
 a few seconds apart, to exercise the relay to the YouTube app's session.
 
 --watch SECONDS: also subscribe as the remote and print every nowPlaying /
@@ -149,7 +149,8 @@ def main():
     print(f"setPlaylist({video_id}) -> {r.status_code} {r.text[:100]}")
 
     if controls:
-        steps = [("pause", {}), ("play", {}), ("seekTo", {"newTime": "60"}), ("stopVideo", {})]
+        steps = [("pause", {}), ("play", {}), ("seekTo", {"newTime": "60"}),
+                 ("setVolume", {"volume": "15"}), ("next", {}), ("stopVideo", {})]
         time.sleep(12)  # let the YouTube app start playing before the first command
         for ofs, (command, extra) in enumerate(steps, start=2):
             params["RID"] = ofs + 1

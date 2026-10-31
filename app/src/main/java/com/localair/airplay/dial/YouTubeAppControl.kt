@@ -19,6 +19,15 @@ import android.util.Log
 class YouTubeAppControl(private val context: Context) {
 
     fun apply(control: LoungeControl) {
+        // Volume is the TV's, not the session's: it works even before YouTube plays.
+        if (control is LoungeControl.SetVolume) {
+            val am = context.getSystemService(android.media.AudioManager::class.java)
+            val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,
+                (control.percent * max + 50) / 100, 0)
+            Log.i(TAG, "relayed $control -> ${(control.percent * max + 50) / 100}/$max")
+            return
+        }
         val c = controller() ?: return
         val t = c.transportControls
         when (control) {
@@ -26,6 +35,9 @@ class YouTubeAppControl(private val context: Context) {
             LoungeControl.Pause -> t.pause()
             LoungeControl.Stop -> t.stop()
             is LoungeControl.Seek -> t.seekTo((control.seconds * 1000).toLong())
+            LoungeControl.Next -> t.skipToNext()
+            LoungeControl.Previous -> t.skipToPrevious()
+            is LoungeControl.SetVolume -> Unit // handled above
         }
         Log.i(TAG, "relayed $control")
     }

@@ -184,6 +184,10 @@ class LoungeClient(
                 "stopVideo" -> onControl(LoungeControl.Stop)
                 "seekTo" -> payload.optJSONObject(1)?.optString("newTime")?.toDoubleOrNull()
                     ?.let { onControl(LoungeControl.Seek(it)) }
+                "next" -> onControl(LoungeControl.Next)
+                "previous" -> onControl(LoungeControl.Previous)
+                "setVolume" -> payload.optJSONObject(1)?.optString("volume")?.toIntOrNull()
+                    ?.let { onControl(LoungeControl.SetVolume(it.coerceIn(0, 100))) }
                 "getNowPlaying" -> thread(name = "$TAG-np", isDaemon = true) {
                     reportPlayback(currentPlayback() ?: Playback.IDLE, nowPlaying = true)
                 }
@@ -284,6 +288,10 @@ sealed class LoungeControl {
     object Pause : LoungeControl() { override fun toString() = "pause" }
     object Stop : LoungeControl() { override fun toString() = "stop" }
     data class Seek(val seconds: Double) : LoungeControl()
+    object Next : LoungeControl() { override fun toString() = "next" }
+    object Previous : LoungeControl() { override fun toString() = "previous" }
+    /** 0-100, the sender's scale. */
+    data class SetVolume(val percent: Int) : LoungeControl()
 }
 
 /** What the sender's cast bar shows. Lounge state codes are YouTube player states. */
