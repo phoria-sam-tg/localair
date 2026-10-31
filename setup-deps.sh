@@ -3,13 +3,12 @@
 # each at a pinned commit, so every build (yours, CI, F-Droid) compiles the
 # same code. Re-runnable: an existing checkout is verified, never re-cloned.
 #
-#   ./setup-deps.sh                 the sources the release is built from
-#   LOCALAIR_URL_VIDEO=1 ./setup-deps.sh
-#                                   also apply patches/apply_patches.py
-#                                   (encrypted HTTP channel + /play URL video).
-#                                   Experimental: not in any release, and it
-#                                   does not compile against the pinned RPiPlay
-#                                   yet (raop.c), so a build with it will fail.
+#   ./setup-deps.sh                 the sources the release is built from, with
+#                                   patches/apply_patches.py applied (encrypted
+#                                   HTTP channel + /play AirPlay URL video; 1.1+)
+#   LOCALAIR_URL_VIDEO=0 ./setup-deps.sh
+#                                   unpatched RPiPlay, as 1.0.x shipped
+#                                   (mirroring and audio only)
 set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -44,9 +43,9 @@ fetch_pinned "$ROOT/third_party/RPiPlay" "$RPIPLAY_URL" "$RPIPLAY_REV"
 fetch_pinned "$ROOT/third_party/libplist" "$LIBPLIST_URL" "$LIBPLIST_REV"
 
 RPIPLAY_LIB="$ROOT/third_party/RPiPlay/lib"
-if [ "${LOCALAIR_URL_VIDEO:-0}" = "1" ]; then
+if [ "${LOCALAIR_URL_VIDEO:-1}" = "1" ]; then
     if ! grep -q "channel_crypto" "$RPIPLAY_LIB/httpd.c"; then
-        echo "applying URL-video patches (experimental)..."
+        echo "applying URL-video patches..."
         python3 "$ROOT/patches/apply_patches.py" \
             "$RPIPLAY_LIB/raop.c" "$RPIPLAY_LIB/raop.h" \
             "$RPIPLAY_LIB/httpd.c" "$RPIPLAY_LIB/httpd.h" "$RPIPLAY_LIB/pairing.h"
@@ -55,8 +54,8 @@ if [ "${LOCALAIR_URL_VIDEO:-0}" = "1" ]; then
     fi
 elif [ -n "$(git -C "$ROOT/third_party/RPiPlay" status --porcelain)" ]; then
     echo "error: third_party/RPiPlay has local changes (patches applied?)." >&2
-    echo "       A release build uses it unmodified:" >&2
-    echo "       git -C third_party/RPiPlay checkout -- .   or set LOCALAIR_URL_VIDEO=1" >&2
+    echo "       LOCALAIR_URL_VIDEO=0 builds it unmodified:" >&2
+    echo "       git -C third_party/RPiPlay checkout -- .   or drop LOCALAIR_URL_VIDEO=0" >&2
     exit 1
 fi
 

@@ -50,11 +50,14 @@ void httpd_set_encryption(httpd_t *httpd, void *user_data, channel_crypto_t *cry
         ('    http_request_t *request;\n};',
          '    http_request_t *request;\n    channel_crypto_t *crypto;\n    uint8_t decrypt_buf[16384];\n    int decrypt_buf_len;\n};'),
 
-        # Init new fields on accept
-        ('    connection->user_data = httpd->callbacks.conn_init(httpd->callbacks.opaque);',
-         '    connection->user_data = httpd->callbacks.conn_init(httpd->callbacks.opaque);\n'
-         '    connection->crypto = NULL;\n'
-         '    connection->decrypt_buf_len = 0;'),
+        # Init new fields when a connection slot is claimed. RPiPlay reuses slots in
+        # httpd->connections[], so without this a new sender inherits the previous
+        # connection's crypto pointer and buffered ciphertext (#926: the old target,
+        # a per-connection conn_init line, doesn't exist in the pinned RPiPlay).
+        ('    httpd->connections[i].user_data = user_data;',
+         '    httpd->connections[i].user_data = user_data;\n'
+         '    httpd->connections[i].crypto = NULL;\n'
+         '    httpd->connections[i].decrypt_buf_len = 0;'),
     ])
 
     # Decrypt recv / encrypt send + PTTH upgrade + httpd_set_encryption
@@ -220,8 +223,10 @@ httpd_destroy(httpd_t *httpd)''')
     if old_cseq in src:
         src = src.replace(old_cseq, new_cseq, 1)
 
-    # Catch-all before handler dispatch
-    old_handler_check = '    if (handler != NULL) {'
+    # Catch-all before handler dispatch: hang an `else` on the method chain's own
+    # closing brace (the TEARDOWN branch). Inserting `} else {` in front of
+    # `if (handler != NULL)` left an orphan `}` and raop.c stopped compiling (#926).
+    old_handler_check = '    }\n    if (handler != NULL) {'
     new_handler_check = '''    } else {
         int datalen_v = 0;
         const char *data_v = http_request_get_data(request, &datalen_v);

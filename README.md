@@ -127,9 +127,10 @@ its debug info. Two clean `./gradlew :app:assembleRelease` runs from
 different directories produce a byte-identical unsigned APK (verified with
 JDK 17.0.21 on macOS arm64).
 
-The AirPlay URL-video patches in `patches/` are not part of any release;
-`LOCALAIR_URL_VIDEO=1 ./setup-deps.sh` applies them, but they do not compile
-against the pinned RPiPlay yet.
+`setup-deps.sh` applies the AirPlay URL-video patches in `patches/` (encrypted
+HTTP channel, `/play`, `/scrub`, `/rate`, `/playback-info`), so a video started
+in Safari or a video app while mirroring can switch to URL playback (1.1).
+`LOCALAIR_URL_VIDEO=0` builds the unpatched RPiPlay that 1.0.x shipped.
 
 Release builds are signed when `local.properties` names a keystore
 (`release.storeFile` and friends, see `local.properties.example`). Keep the
