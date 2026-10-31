@@ -47,8 +47,13 @@ pause, play, seek, stop), boot start, and AirPlay advertising after a reboot.
 - YouTube playback happens in the official YouTube TV app
   (`com.google.android.youtube.tv`), so that app must be installed. Its
   sign-in, ads and recommendations apply.
-- The phone's YouTube app doesn't show progress for localair yet, so the
-  sender's scrubber won't move.
+- The phone's cast bar (position, play/pause) follows playback only while
+  localair holds notification-listener access, which is how it reads the
+  YouTube app's media session. Without it, casting still starts playback.
+- **A cast can stop at YouTube's "Who's watching?" screen.** localair hands
+  the video to the YouTube TV app; when YouTube decides to ask for a profile
+  (seen after it had been closed overnight), it shows its picker and the video
+  starts only once someone picks. localair doesn't choose a profile for you.
 
 ## Install
 

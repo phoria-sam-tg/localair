@@ -30,7 +30,8 @@ import java.util.UUID
  * problem (real YouTube stream URLs are signed/ciphered). Shipping the
  * hand-off now per ticket #1019; a real in-app player (NewPipeExtractor)
  * is the later upgrade if this feels clunky. Pause, play, seek and stop
- * from the sender are relayed to that app's media session (YouTubeAppControl).
+ * from the sender are relayed to that app's media session (YouTubeAppControl),
+ * and that session's state is reported back so the sender's cast bar follows.
  */
 class DialCastService : Service() {
 
@@ -53,6 +54,8 @@ class DialCastService : Service() {
         ssdp?.stop()
         http?.stop()
         lounge?.stop()
+        appControl.unwatch()
+        reporter.shutdownNow()
         multicastLock?.release()
         super.onDestroy()
     }
@@ -70,8 +73,10 @@ class DialCastService : Service() {
             deviceName = name,
             onPlayVideo = { videoId, startSeconds -> playInYouTubeApp(videoId, startSeconds) },
             onControl = { control -> appControl.apply(control) },
+            currentPlayback = { appControl.snapshot() },
         )
         lounge = client
+        appControl.watch { playback -> reportToSenders(playback) }
 
         val server = DialHttpServer(
             uuid = uuid,
@@ -91,6 +96,27 @@ class DialCastService : Service() {
 
         Log.i(TAG, "DIAL up: $name, http=$httpPort, uuid=$uuid")
     }
+
+    /**
+     * Forwards YouTube's playback state to senders, off the main thread, and
+     * only when it changed enough to matter: the state itself, or a position
+     * that no longer matches what senders extrapolate from the last report.
+     */
+    private fun reportToSenders(p: Playback) {
+        val last = lastReported
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (last != null && last.first.state == p.state) {
+            val expected = last.first.positionSeconds +
+                if (p.state == Playback.State.PLAYING) (now - last.second) / 1000.0 else 0.0
+            val periodic = now - last.second >= REPORT_EVERY_MS
+            if (kotlin.math.abs(p.positionSeconds - expected) < 1.5 && !periodic) return
+        }
+        lastReported = p to now
+        reporter.execute { lounge?.reportPlayback(p) }
+    }
+
+    private var lastReported: Pair<Playback, Long>? = null
+    private val reporter = java.util.concurrent.Executors.newSingleThreadExecutor()
 
     private fun playInYouTubeApp(videoId: String, startSeconds: Double?) {
         val url = buildString {
@@ -141,5 +167,6 @@ class DialCastService : Service() {
     companion object {
         private const val TAG = "DialCastService"
         private const val CHANNEL = "dial"
+        private const val REPORT_EVERY_MS = 15_000L
     }
 }
